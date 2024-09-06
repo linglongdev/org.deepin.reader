@@ -1,0 +1,52 @@
+# SPDX-FileCopyrightText: 2023-2024 UnionTech Software Technology Co., Ltd.
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+version: "1"
+
+package:
+  id: org.deepin.reader
+  name: "deepin-reader"
+  version: 6.5.0.1
+  kind: app
+  description: |
+    reader for deepin os.
+
+base: org.deepin.base/23.1.0/loong64
+runtime: org.deepin.runtime.dtk/23.1.0/loong64
+
+command:
+  - deepin-reader
+
+build: |
+  cat /var/lib/dpkg/status|grep "^Package: " > $PREFIX/packages.list
+  bash ./install_dep linglong/sources "$PREFIX"
+  # 设置INCLUDEPATH为引入的CFLAGS环境变量获取的路径
+  find linglong/sources/deepin-reader -type f -name "src.pro" -exec sed -i '33i INCLUDEPATH += $$INCPATHS' {} +
+  find linglong/sources/deepin-reader -type f -name "htmltopdf.pro" -exec sed -i '35i INCLUDEPATH += $$INCPATHS' {} +
+  # 替换Qt找不到webenginewidgets模块，改用pkgconfig方式
+  find linglong/sources/deepin-reader -type f -name "htmltopdf.pro" -exec sed -i 's/^QT += webenginewidgets.*/CONFIG += link_pkgconfig/g' {} +
+  find linglong/sources/deepin-reader -type f -name "htmltopdf.pro" -exec sed -i '7i PKGCONFIG += Qt5WebEngineWidgets' {} +
+  # 注释测试
+  find linglong/sources/deepin-reader -type f -name "deepin_reader.pro" -exec sed -i 's/SUBDIRS += tests/#SUBDIRS += tests/g' {} +
+  # 替换安装的Qt webengine 相关库的查找路径
+  find $PREFIX -name "*.prl" -exec sed -i 's/\$\$\[QT_INSTALL_LIBS\]\/libQt5WebEngineCore.so/\$\$\[APP_INSTALL_LIBS\]\/libQt5WebEngineCore.so/g' {} +
+  find $PREFIX -name "*.prl" -exec sed -i 's/\$\$\[QT_INSTALL_LIBS\]\/libQt5WebChannel.so/\$\$\[APP_INSTALL_LIBS\]\/libQt5WebChannel.so/g' {} +
+  find $PREFIX -name "*.prl" -exec sed -i 's/\$\$\[QT_INSTALL_LIBS\]\/libQt5Positioning.so/\$\$\[APP_INSTALL_LIBS\]\/libQt5Positioning.so/g' {} +
+  HOST_MULTIARCH=$(gcc -dumpmachine)
+  mkdir -p  build && cd build
+  qmake -set APP_INSTALL_LIBS $PREFIX/lib/$HOST_MULTIARCH
+  qmake "VERSION=6.5.0.1" "PREFIX=$PREFIX" "LINGLONG_BUILD_ON=1" "INCPATHS=$(echo "$CFLAGS" | sed 's/-I//g')" ${extra_args} ../linglong/sources/deepin-reader/deepin_reader.pro
+  make -j`nproc` && make install
+  # 拷贝webengine相关资源到htmltopdf应用
+  echo "copy webengine bin and resources into htmltopdf ..."
+  cp $PREFIX/share/qt5/resources/* $PREFIX/lib/deepin-reader/
+  cp $PREFIX/lib/$HOST_MULTIARCH/qt5/libexec/* $PREFIX/lib/deepin-reader/
+
+sources:
+  - kind: git
+    url: https://github.com/linuxdeepin/deepin-reader
+    commit: fcf5da32f45439eeb275bfb10f6dbf62f0ce6130
+  # linglong:gen_deb_source sources loong64 https://ci.deepin.com/repo/deepin/deepin-community/backup/rc2 beige main community
+  # linglong:gen_deb_source install libdtkwidget-dev, qtwebengine5-dev, pandoc
+  # linglong:gen_deb_source install libspectre-dev, libdjvulibre-dev, libtiff-dev, libkf5archive-dev, libjpeg-dev, libicu-dev, libpng-dev, zlib1g-dev, liblcms2-dev, libopenjp2-7-dev, libfreetype6-dev, libgtest-dev, libchardet-dev
